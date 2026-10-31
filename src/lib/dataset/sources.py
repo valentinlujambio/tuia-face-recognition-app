@@ -68,3 +68,9 @@ def find_dataset_root(base: Path, min_identity_dirs: int = 2) -> Path:
         queue.extend(subdirs)
     raise FileNotFoundError(f"No identity folders found under {base}")
 
+
+
+def filter_min_images(df: pd.DataFrame, min_images: int) -> pd.DataFrame:
+    """Deja solo las identidades con al menos min_images imágenes. Conserva el índice original."""
+    counts = df["identity"].map(df["identity"].value_counts())
+    return df[counts >= min_images]
