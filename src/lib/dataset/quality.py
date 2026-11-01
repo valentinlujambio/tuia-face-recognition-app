@@ -90,6 +90,17 @@ class ExposureRule(QualityRule):
         )
 
 
+@dataclass
+class FlagRule(QualityRule):
+    """Descarta las filas marcadas en una columna booleana calculada aparte (por ejemplo, duplicados)."""
+
+    column: str = "is_duplicate"
+    name: str = "duplicado"
+
+    def fails(self, df: pd.DataFrame) -> pd.Series:
+        return df[self.column].fillna(False).astype(bool)
+
+
 class QualityFilter:
     """Aplica las reglas en orden. Cada imagen descartada se atribuye a la primera regla que falla,
     así la suma de descartes por regla coincide con el total."""
