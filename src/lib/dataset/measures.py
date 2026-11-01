@@ -28,6 +28,12 @@ def grayscale(image_bgr: np.ndarray, tolerance: float = 2.0) -> dict[str, float]
     return {"is_grayscale": float(max(np.abs(b - g).mean(), np.abs(g - r).mean())) < tolerance}
 
 
+def sharpness(image_bgr: np.ndarray) -> dict[str, float]:
+    """Nitidez: varianza de la respuesta al Laplaciano en gris. Valores bajos indican blur."""
+    gray = cv2.cvtColor(image_bgr, cv2.COLOR_BGR2GRAY)
+    return {"laplacian_var": float(cv2.Laplacian(gray, cv2.CV_64F).var())}
+
+
 def measure_aligned(df: pd.DataFrame, aligned_root: Path, measures: Sequence[Measure]) -> pd.DataFrame:
     """Aplica cada medida a cada cara alineada. Las filas sin recorte quedan en NaN.
 
