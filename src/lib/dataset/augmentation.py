@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import copy
+import hashlib
+import json
 from typing import Sequence
 
 import albumentations as A
@@ -74,3 +76,12 @@ def transform_effects(
         rows.append({"transformación": type(transform).__name__, "p en el pipeline": transform.p,
                      "mediana": np.median(sims), "p5": np.percentile(sims, 5), "mínimo": sims.min()})
     return pd.DataFrame(rows).set_index("transformación")
+
+
+def augmentation_fingerprint(augment: A.Compose, **context) -> str:
+    """Hash corto de la configuración del pipeline y de un contexto (semilla, muestra) para nombrar cachés.
+
+    Si cambia una transformación, un parámetro o el contexto, cambia el hash y la caché anterior deja de usarse.
+    """
+    payload = json.dumps({"pipeline": A.to_dict(augment), "context": context}, sort_keys=True, default=str)
+    return hashlib.sha1(payload.encode("utf-8")).hexdigest()[:12]
