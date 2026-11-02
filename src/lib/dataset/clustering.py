@@ -96,6 +96,27 @@ def identity_centroids(embeddings: np.ndarray, labels: np.ndarray) -> tuple[np.n
     return identities, centroids / np.linalg.norm(centroids, axis=1, keepdims=True)
 
 
+def label_audit(embeddings: np.ndarray, labels: np.ndarray) -> pd.DataFrame:
+    """Por imagen: coseno con el centroide de su identidad y con el de la identidad ajena más parecida.
+
+    Similitud propia baja: la imagen está lejos de su clase (outlier).
+    Similitud alta con otra identidad: probablemente es otra persona del dataset (error de etiqueta).
+    """
+    identities, centroids = identity_centroids(embeddings, labels)
+    sims = embeddings @ centroids.T
+    rows = np.arange(len(embeddings))
+    own = np.searchsorted(identities, labels)
+    own_sim = sims[rows, own]
+    sims[rows, own] = -np.inf
+    closest = sims.argmax(axis=1)
+    return pd.DataFrame({
+        "identity": labels,
+        "own_similarity": own_sim,
+        "closest_other": identities[closest],
+        "closest_other_similarity": sims[rows, closest],
+    })
+
+
 def closest_identity_pairs(embeddings: np.ndarray, labels: np.ndarray, top: int = 10) -> pd.DataFrame:
     """Pares de identidades con centroides más parecidos: las que más se pueden mezclar."""
     identities, centroids = identity_centroids(embeddings, labels)
