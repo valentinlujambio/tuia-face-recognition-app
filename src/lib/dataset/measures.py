@@ -10,6 +10,9 @@ from tqdm.auto import tqdm
 
 Measure = Callable[[np.ndarray], dict[str, float]]
 
+# Zona central de la cara alineada 112x112 (plantilla ArcFace): ojos, nariz y boca, sin fondo ni pelo.
+FACE_CENTER = (slice(36, 100), slice(28, 84))
+
 
 def exposure(image_bgr: np.ndarray, low: int = 10, high: int = 245) -> dict[str, float]:
     """Brillo medio, contraste (desvío) y fracción de píxeles casi negros o casi blancos, en gris."""
@@ -32,6 +35,15 @@ def sharpness(image_bgr: np.ndarray) -> dict[str, float]:
     """Nitidez: varianza de la respuesta al Laplaciano en gris. Valores bajos indican blur."""
     gray = cv2.cvtColor(image_bgr, cv2.COLOR_BGR2GRAY)
     return {"laplacian_var": float(cv2.Laplacian(gray, cv2.CV_64F).var())}
+
+
+def on_region(measure: Measure, region: tuple[slice, slice] = FACE_CENTER, prefix: str = "center_") -> Measure:
+    """La misma medida, calculada solo sobre una zona del recorte. Las columnas llevan el prefijo."""
+
+    def measure_region(image_bgr: np.ndarray) -> dict[str, float]:
+        return {f"{prefix}{k}": v for k, v in measure(np.ascontiguousarray(image_bgr[region])).items()}
+
+    return measure_region
 
 
 def measure_aligned(df: pd.DataFrame, aligned_root: Path, measures: Sequence[Measure]) -> pd.DataFrame:

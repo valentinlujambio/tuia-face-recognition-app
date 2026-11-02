@@ -70,22 +70,28 @@ class BlurRule(QualityRule):
 
 @dataclass
 class ExposureRule(QualityRule):
+    """prefix elige qué medidas de exposición usar: "" para todo el recorte, "center_" para la zona central."""
+
     min_brightness: float = 40.0
     max_brightness: float = 215.0
     max_clipped_fraction: float = 0.3
+    prefix: str = ""
     name: str = "exposición extrema"
 
     def fails(self, df: pd.DataFrame) -> pd.Series:
-        clipped = df[["dark_fraction", "bright_fraction"]].max(axis=1)
+        p = self.prefix
+        brightness = df[f"{p}brightness"]
+        clipped = df[[f"{p}dark_fraction", f"{p}bright_fraction"]].max(axis=1)
         return (
-            (df["brightness"] < self.min_brightness)
-            | (df["brightness"] > self.max_brightness)
+            (brightness < self.min_brightness)
+            | (brightness > self.max_brightness)
             | (clipped > self.max_clipped_fraction)
         )
 
     def describe(self) -> str:
+        where = " en la zona central" if self.prefix == "center_" else ""
         return (
-            f"{self.name} (brillo fuera de [{self.min_brightness:g}, {self.max_brightness:g}] "
+            f"{self.name}{where} (brillo fuera de [{self.min_brightness:g}, {self.max_brightness:g}] "
             f"o > {self.max_clipped_fraction:.0%} de píxeles saturados)"
         )
 
