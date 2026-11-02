@@ -1,8 +1,15 @@
 from __future__ import annotations
 
+from typing import Callable, Mapping
+
 import numpy as np
+import pandas as pd
+from sklearn.cluster import DBSCAN, AgglomerativeClustering, KMeans
 from sklearn.decomposition import PCA
 from sklearn.manifold import TSNE
+from sklearn.metrics import adjusted_rand_score, normalized_mutual_info_score, silhouette_score
+
+ClusterFactory = Callable[[int], object]
 
 
 def project_tsne(embeddings: np.ndarray, pca_dims: int = 50, perplexity: float = 30.0, seed: int = 42) -> np.ndarray:
@@ -13,3 +20,70 @@ def project_tsne(embeddings: np.ndarray, pca_dims: int = 50, perplexity: float =
     reduced = PCA(n_components=min(pca_dims, *embeddings.shape), random_state=seed).fit_transform(embeddings)
     perplexity = min(perplexity, (len(embeddings) - 1) / 3)
     return TSNE(n_components=2, perplexity=perplexity, init="pca", random_state=seed).fit_transform(reduced)
+
+
+def sample_per_identity(labels: np.ndarray, per_identity: int, seed: int = 42) -> np.ndarray:
+    """Posiciones de una muestra con la misma cantidad de imágenes por identidad (o todas, si tiene menos)."""
+    rng = np.random.default_rng(seed)
+    picks = []
+    for identity in np.unique(labels):
+        positions = np.flatnonzero(labels == identity)
+        picks.append(rng.choice(positions, min(per_identity, len(positions)), replace=False))
+    return np.sort(np.concatenate(picks))
+
+
+def same_vs_different_similarities(
+    embeddings: np.ndarray, labels: np.ndarray, n_different: int = 200_000, seed: int = 42
+) -> tuple[np.ndarray, np.ndarray]:
+    """Cosenos entre fotos de la misma persona (todos los pares) y de personas distintas (pares al azar).
+
+    Los embeddings deben estar normalizados L2.
+    """
+    same = []
+    for identity in np.unique(labels):
+        group = embeddings[labels == identity]
+        same.append((group @ group.T)[np.triu_indices(len(group), k=1)])
+    i, j = np.random.default_rng(seed).integers(0, len(embeddings), (2, n_different))
+    different = i[labels[i] != labels[j]], j[labels[i] != labels[j]]
+    return np.concatenate(same), np.einsum("ij,ij->i", embeddings[different[0]], embeddings[different[1]])
+
+
+def default_algorithms(seed: int = 42, dbscan_eps: float = 0.5, dbscan_min_samples: int = 5) -> dict[str, ClusterFactory]:
+    """Algoritmos a comparar. Cada fábrica recibe k (cantidad de identidades); DBSCAN no lo usa."""
+    return {
+        "K-Means": lambda k: KMeans(n_clusters=k, n_init=10, random_state=seed),
+        "Aglomerativo (coseno, average)": lambda k: AgglomerativeClustering(n_clusters=k, metric="cosine", linkage="average"),
+        f"DBSCAN (coseno, eps={dbscan_eps:g})": lambda k: DBSCAN(eps=dbscan_eps, min_samples=dbscan_min_samples, metric="cosine"),
+    }
+
+
+def evaluate_clustering(
+    embeddings: np.ndarray, labels: np.ndarray, algorithms: Mapping[str, ClusterFactory]
+) -> tuple[pd.DataFrame, dict[str, np.ndarray]]:
+    """ARI y NMI contra las etiquetas reales y silhouette (coseno) de cada algoritmo.
+
+    La primera fila es el silhouette de las etiquetas reales: cuán separables son
+    las identidades en este espacio, la referencia para comparar los algoritmos.
+    El ruido de DBSCAN (-1) cuenta como un cluster más para ARI y NMI y se excluye del silhouette.
+    """
+    k = len(np.unique(labels))
+    rows = [{"algoritmo": "Etiquetas reales", "clusters": k, "ruido": 0, "ARI": 1.0, "NMI": 1.0,
+             "silhouette": silhouette_score(embeddings, labels, metric="cosine")}]
+    assignments = {}
+    for name, factory in algorithms.items():
+        predicted = factory(k).fit_predict(embeddings)
+        assignments[name] = predicted
+        clustered = predicted != -1
+        n_clusters = len(np.unique(predicted[clustered]))
+        rows.append({
+            "algoritmo": name,
+            "clusters": n_clusters,
+            "ruido": int((~clustered).sum()),
+            "ARI": adjusted_rand_score(labels, predicted),
+            "NMI": normalized_mutual_info_score(labels, predicted),
+            "silhouette": (
+                silhouette_score(embeddings[clustered], predicted[clustered], metric="cosine")
+                if 1 < n_clusters < clustered.sum() else np.nan
+            ),
+        })
+    return pd.DataFrame(rows), assignments
