@@ -117,6 +117,32 @@ def label_audit(embeddings: np.ndarray, labels: np.ndarray) -> pd.DataFrame:
     })
 
 
+def condition_neighbor_rate(
+    embeddings: np.ndarray, labels: np.ndarray, flag: np.ndarray, min_images: int = 3
+) -> tuple[float, float, int]:
+    """Si las imágenes con una condición de captura (flag) forman un subgrupo dentro de su identidad.
+
+    Para cada imagen con la condición busca su vecina más parecida de la misma identidad y mide
+    con qué frecuencia también tiene la condición. Se compara con lo esperable al azar, que es
+    la proporción de la condición en esa identidad. Solo cuenta identidades con al menos
+    min_images imágenes con y sin la condición.
+    Devuelve (frecuencia observada, frecuencia al azar, identidades evaluadas).
+    """
+    observed, chance = [], []
+    for identity in np.unique(labels):
+        mask = labels == identity
+        has = flag[mask]
+        if has.sum() < min_images or (~has).sum() < min_images:
+            continue
+        group = embeddings[mask]
+        sims = group @ group.T
+        np.fill_diagonal(sims, -np.inf)
+        nearest = sims.argmax(axis=1)
+        observed.append(has[nearest][has].mean())
+        chance.append((has.sum() - 1) / (len(has) - 1))
+    return float(np.mean(observed)), float(np.mean(chance)), len(observed)
+
+
 def closest_identity_pairs(embeddings: np.ndarray, labels: np.ndarray, top: int = 10) -> pd.DataFrame:
     """Pares de identidades con centroides más parecidos: las que más se pueden mezclar."""
     identities, centroids = identity_centroids(embeddings, labels)
