@@ -32,7 +32,10 @@ class OnnxFaceEmbedder:
     ) -> None:
         import onnxruntime
 
-        self._session = onnxruntime.InferenceSession(str(model_file), providers=list(providers))
+        options = onnxruntime.SessionOptions()
+        # El modelo declara batch 1 en la salida y onnxruntime avisa en cada lote; el resultado es correcto.
+        options.log_severity_level = 3
+        self._session = onnxruntime.InferenceSession(str(model_file), sess_options=options, providers=list(providers))
         self._input_name = self._session.get_inputs()[0].name
         self._normalization = normalization
         self._batch_size = batch_size
