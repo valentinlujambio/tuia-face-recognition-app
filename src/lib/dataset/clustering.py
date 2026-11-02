@@ -87,3 +87,42 @@ def evaluate_clustering(
             ),
         })
     return pd.DataFrame(rows), assignments
+
+
+def identity_centroids(embeddings: np.ndarray, labels: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+    """(identidades, centroides normalizados L2)."""
+    identities = np.unique(labels)
+    centroids = np.stack([embeddings[labels == identity].mean(axis=0) for identity in identities])
+    return identities, centroids / np.linalg.norm(centroids, axis=1, keepdims=True)
+
+
+def closest_identity_pairs(embeddings: np.ndarray, labels: np.ndarray, top: int = 10) -> pd.DataFrame:
+    """Pares de identidades con centroides más parecidos: las que más se pueden mezclar."""
+    identities, centroids = identity_centroids(embeddings, labels)
+    sims = centroids @ centroids.T
+    i_idx, j_idx = np.triu_indices(len(identities), k=1)
+    pairs = pd.DataFrame({"identidad_a": identities[i_idx], "identidad_b": identities[j_idx], "similitud_centroides": sims[i_idx, j_idx]})
+    return pairs.nlargest(top, "similitud_centroides").reset_index(drop=True)
+
+
+def split_identities(labels: np.ndarray, predicted: np.ndarray) -> pd.DataFrame:
+    """Identidades repartidas en más de un cluster (sin contar el ruido) y qué fracción cae en su cluster mayoritario."""
+    frame = pd.DataFrame({"identity": labels, "cluster": predicted})
+    grouped = frame[frame["cluster"] != -1].groupby("identity")["cluster"]
+    purity = pd.DataFrame({
+        "clusters": grouped.nunique(),
+        "fraccion_mayoritario": grouped.agg(lambda s: s.value_counts(normalize=True).iloc[0]),
+    })
+    return purity[purity["clusters"] > 1].sort_values("fraccion_mayoritario")
+
+
+def merged_clusters(labels: np.ndarray, predicted: np.ndarray, min_images: int = 5) -> pd.DataFrame:
+    """Clusters que juntan al menos min_images imágenes de dos o más identidades."""
+    frame = pd.DataFrame({"identity": labels, "cluster": predicted})
+    rows = []
+    for cluster, members in frame[frame["cluster"] != -1].groupby("cluster")["identity"]:
+        counts = members.value_counts()
+        counts = counts[counts >= min_images]
+        if len(counts) > 1:
+            rows.append({"cluster": cluster, "identidades": ", ".join(f"{name} ({n})" for name, n in counts.items())})
+    return pd.DataFrame(rows, columns=["cluster", "identidades"])
