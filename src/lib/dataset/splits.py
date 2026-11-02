@@ -4,7 +4,6 @@ from dataclasses import asdict, dataclass
 
 import numpy as np
 import pandas as pd
-from sklearn.model_selection import train_test_split
 
 TRAIN, VAL_CLOSED, TEST_CLOSED, VAL_OPEN, TEST_OPEN = "train", "val_closed", "test_closed", "val_open", "test_open"
 SPLIT_ORDER = [TRAIN, VAL_CLOSED, TEST_CLOSED, VAL_OPEN, TEST_OPEN]
@@ -26,11 +25,52 @@ class SplitConfig:
         return asdict(self)
 
 
-def make_splits(df: pd.DataFrame, config: SplitConfig) -> pd.DataFrame:
+def near_duplicate_groups(
+    embeddings: np.ndarray, labels: np.ndarray, threshold: float, block_size: int = 2048
+) -> np.ndarray:
+    """Un id de grupo por imagen: quedan en el mismo grupo las imágenes de una misma identidad unidas por
+    una cadena de pares con coseno >= threshold (la misma foto con otro recorte, color o compresión).
+
+    Los embeddings deben estar normalizados L2.
+    """
+    parent = np.arange(len(embeddings))
+
+    def find(x: int) -> int:
+        while parent[x] != x:
+            parent[x] = parent[parent[x]]
+            x = parent[x]
+        return x
+
+    for start in range(0, len(embeddings), block_size):
+        sims = embeddings[start : start + block_size] @ embeddings.T
+        rows, cols = np.nonzero(sims >= threshold)
+        rows = rows + start
+        keep = (rows < cols) & (labels[rows] == labels[cols])
+        for a, b in zip(rows[keep], cols[keep]):
+            parent[find(a)] = find(b)
+    return np.array([find(x) for x in range(len(embeddings))])
+
+
+def _assign_groups(group_sizes: pd.Series, fractions: dict[str, float], rng: np.random.Generator) -> dict:
+    """Reparte grupos enteros entre splits: cada grupo va al split más lejos de su cantidad objetivo."""
+    total = group_sizes.sum()
+    target = {split: fraction * total for split, fraction in fractions.items()}
+    filled = dict.fromkeys(fractions, 0)
+    assignment = {}
+    for group in rng.permutation(group_sizes.index.to_numpy()):
+        split = max(fractions, key=lambda s: (target[s] - filled[s]) / target[s])
+        assignment[group] = split
+        filled[split] += group_sizes[group]
+    return assignment
+
+
+def make_splits(df: pd.DataFrame, config: SplitConfig, groups: np.ndarray | None = None) -> pd.DataFrame:
     """Agrega las columnas split y scenario (closed/open). Conserva el índice de df.
 
     1) Separa identidades enteras para open-set (split por identidad).
-    2) Con las restantes divide las imágenes estratificando por identidad (closed-set).
+    2) Con las restantes reparte las imágenes de cada identidad entre train, val_closed y test_closed
+       (estratificado por identidad). Si se pasan groups, cada grupo de casi-duplicados va entero a un
+       solo split, para que la misma foto no quede en train y en test.
     """
     rng = np.random.default_rng(config.seed)
     identities = np.array(sorted(df["identity"].unique()))
@@ -41,27 +81,29 @@ def make_splits(df: pd.DataFrame, config: SplitConfig) -> pd.DataFrame:
     open_val, open_test = set(identities[:n_val]), set(identities[n_val : n_val + n_test])
 
     out = df.copy()
+    out["group"] = np.arange(len(df)) if groups is None else groups
     out["split"] = None
     out.loc[out["identity"].isin(open_val), "split"] = VAL_OPEN
     out.loc[out["identity"].isin(open_test), "split"] = TEST_OPEN
 
+    fractions = {
+        TRAIN: 1 - config.closed_val_fraction - config.closed_test_fraction,
+        VAL_CLOSED: config.closed_val_fraction,
+        TEST_CLOSED: config.closed_test_fraction,
+    }
     closed = out[out["split"].isna()]
-    holdout_fraction = config.closed_val_fraction + config.closed_test_fraction
-    train_idx, holdout_idx = train_test_split(
-        closed.index, test_size=holdout_fraction, stratify=closed["identity"], random_state=config.seed
-    )
-    holdout = closed.loc[holdout_idx]
-    val_idx, test_idx = train_test_split(
-        holdout.index,
-        test_size=config.closed_test_fraction / holdout_fraction,
-        stratify=holdout["identity"],
-        random_state=config.seed,
-    )
-    out.loc[train_idx, "split"] = TRAIN
-    out.loc[val_idx, "split"] = VAL_CLOSED
-    out.loc[test_idx, "split"] = TEST_CLOSED
+    for _, rows in closed.groupby("identity", sort=True):
+        assignment = _assign_groups(rows["group"].value_counts().sort_index(), fractions, rng)
+        out.loc[rows.index, "split"] = rows["group"].map(assignment)
     out["scenario"] = np.where(out["split"].isin(OPEN_SPLITS), "open", "closed")
     return out
+
+
+def assert_no_group_leakage(df: pd.DataFrame) -> None:
+    """Cada grupo de casi-duplicados está en un solo split."""
+    splits_per_group = df.groupby("group")["split"].nunique()
+    shared = int((splits_per_group > 1).sum())
+    assert shared == 0, f"{shared} grupos de casi-duplicados quedaron repartidos en más de un split"
 
 
 def identity_overlaps(df: pd.DataFrame) -> pd.DataFrame:
