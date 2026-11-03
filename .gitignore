@@ -16,3 +16,4 @@ src/output/*
 
 results/*
 !results/.gitkeep
+aligned.rar
