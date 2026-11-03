@@ -1,6 +1,6 @@
 # TP1 - Sistema de Reconocimiento Facial
 
-Plantilla base para desarrollar un sistema completo de detección, alineación, extracción de embeddings e identificación/verificación facial.
+Sistema de reconocimiento facial de punta a punta: dataset y preprocesamiento (Parte 1), comparación de una CNN propia contra InsightFace `buffalo_l` (Parte 2) y una app web (FastAPI + Gradio + PostgreSQL/pgvector) que registra identidades y reconoce personas en imágenes nuevas (Parte 3). La app usa InsightFace `buffalo_l`.
 
 > 📄 El enunciado completo del trabajo práctico está en [ENUNCIADO.md](ENUNCIADO.md).
 
@@ -216,6 +216,22 @@ El pipeline de la app es el mismo de la Parte 1 (detector, alineación y normali
 - Variable nueva `DET_PAD_RATIO`, en los dos `.env.*.example`.
 
 **Consistencia app ↔ notebook:** la misma foto procesada por la app y por la Parte 1 da embeddings con coseno entre 0,991 y 0,998. La diferencia viene de detectar sobre la imagen original o sobre el recorte.
+
+### Validación end-to-end
+
+Se probó el stack completo (Docker, `w600k_r50.onnx`, `SIMILARITY_THRESHOLD=0.334`, `USE_PGVECTOR=true`) con identidades del dataset y con fotos de los integrantes (usadas con su consentimiento, en `docs/fotos_*`). Las capturas del frontend están en [`docs/capturas/`](docs/capturas/).
+
+| Caso | Resultado |
+|---|---|
+| Registro de Chris Evans, Zendaya y Tom Holland (3 fotos cada una) y de Valentín Lujambio (3 fotos) | los 12 registros terminan en `done` |
+| Una persona registrada, con una foto no usada en el registro | etiqueta correcta, score 0,57 a 0,94 ([captura](docs/capturas/predict_lucas_reconocido.jpg)) |
+| Varias personas en una imagen | cada rostro con su etiqueta y sus keypoints ([captura](docs/capturas/predict_grupo_cajas_keypoints.jpg)) |
+| Persona no registrada | `unknown`, score 0,06 a 0,16 ([captura](docs/capturas/unknown_lucas_sin_registrar.jpg)) |
+| Imagen sin rostros | `detections: []`, estado `done` |
+| Registro con 2 rostros | estado `failed`: "Exactly one face must be detected for identity registration." |
+| Registro de una identidad desde el frontend | recorte alineado y estado "completado (registro)" ([captura](docs/capturas/registro_lucas_ramirez.jpg)) |
+
+Con una sola foto de registro, Lucas Ramirez pasó de `unknown` (0,16) a ser reconocido con 0,83 en una foto distinta. Las fotos propias no son parte del dataset ni de la evaluación de la Parte 2.
 
 ## Modelos comparados (Parte 2)
 
