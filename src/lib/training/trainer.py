@@ -151,14 +151,16 @@ class Trainer:
         for images, labels in loader:
             images, labels = images.to(self.device, non_blocking=True), labels.to(self.device, non_blocking=True)
             with self._autocast():
-                logits = self.head(self.model(images), labels)
+                embeddings = self.model(images)
+                logits = self.head(embeddings, labels)
                 loss = F.cross_entropy(logits, labels, label_smoothing=self.label_smoothing)
             self.optimizer.zero_grad(set_to_none=True)
             self.scaler.scale(loss).backward()
             self.scaler.step(self.optimizer)
             self.scaler.update()
             total_loss += loss.item() * len(labels)
-            correct += (logits.argmax(1) == labels).sum().item()
+            with torch.no_grad():  # accuracy sin margen (con ArcFace los logits de la loss la subestiman)
+                correct += (self.head(embeddings.detach()).argmax(1) == labels).sum().item()
             seen += len(labels)
         return total_loss / seen, correct / seen
 

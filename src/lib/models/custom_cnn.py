@@ -7,6 +7,7 @@ para entrenar vive en `lib.models.heads` y se descarta después del entrenamient
 from __future__ import annotations
 
 from dataclasses import dataclass
+from pathlib import Path
 
 import torch
 from torch import nn
@@ -88,6 +89,16 @@ class CustomFaceCNN(nn.Module):
             stages.append(nn.Sequential(*blocks))
             in_ch = out_ch
         return stages
+
+    @classmethod
+    def from_checkpoint(cls, path: str | Path, map_location: str | torch.device = "cpu") -> "CustomFaceCNN":
+        """Reconstruye el extractor desde un `best.pt` de CheckpointStore (state_dict + config)."""
+        checkpoint = torch.load(path, map_location=map_location, weights_only=False)
+        config = dict(checkpoint["config"])
+        config["channels"] = tuple(config["channels"])
+        model = cls(CustomCNNConfig(**config))
+        model.load_state_dict(checkpoint["state_dict"])
+        return model
 
     @property
     def embedding_dim(self) -> int:

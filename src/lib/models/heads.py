@@ -57,3 +57,17 @@ class ArcFaceHead(nn.Module):
         cos_theta_m = torch.where(cosine > self.threshold, cos_theta_m, cosine - self.fallback)
         one_hot = F.one_hot(labels, num_classes=cosine.size(1)).bool()
         return self.scale * torch.where(one_hot, cos_theta_m, cosine)
+
+    @torch.no_grad()
+    def init_from_centroids(self, embeddings: torch.Tensor, labels: torch.Tensor) -> None:
+        """Inicializa el vector de cada clase con el centroide normalizado de sus embeddings.
+
+        Para fine-tuning desde un extractor ya entrenado: la cabeza arranca alineada con las
+        identidades en vez de al azar, así el margen no impide que la clase correcta gane al inicio.
+        """
+        embeddings = F.normalize(embeddings.float(), dim=1)
+        for c in range(self.weight.size(0)):
+            members = embeddings[labels == c]
+            if len(members) == 0:
+                raise ValueError(f"la clase {c} no tiene embeddings")
+            self.weight[c] = F.normalize(members.mean(0), dim=0).to(self.weight)
