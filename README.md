@@ -52,6 +52,8 @@ tuia-face-recognition-app/
 │           ├── base.py
 │           ├── embedding_store.py   # Persistencia en JSON
 │           └── pgvector_store.py    # Persistencia en PostgreSQL + pgvector
+├── tests/                       # Tests unitarios de FaceService (pytest)
+├── docs/                        # Capturas de la validación end-to-end y fotos de los integrantes
 ├── models/                      # Modelos .onnx, no se versionan (ver "Cómo correrlo")
 ├── output/                      # Imágenes subidas y resultados, no se versiona
 ├── requirements.txt
@@ -283,6 +285,16 @@ Detalle en [`1-pre-processing.ipynb`](1-pre-processing.ipynb).
 - **Detección y alineación:** SCRFD con borde de 25 %, alineación de 5 puntos a 112×112.
 - **Splits:** *closed-set* con 80 personas (9.006 `train`, 1.980 `val_closed`, 1.974 `test_closed`) y *open-set* con identidades enteras que el Modelo A nunca ve (12 personas y 2.003 imágenes en `val_open`, 13 personas y 1.900 imágenes en `test_open`). Las copias de una misma foto quedan siempre en el mismo split.
 - **Augmentation** (solo en train): flip, rotación y traslación, brillo y contraste, color, escala de grises, blur o ruido, oclusión y compresión.
+
+## Tests
+
+Tests unitarios de `FaceService` en [`tests/test_face_service.py`](tests/test_face_service.py): `detect_faces` (una cara, dos caras, sin caras), `align_face` (imagen `FACE_SIZE`², keypoints `(5, 2)` relativos a la caja y en orden InsightFace, caso sin landmarks), `extract_embedding_from_face` (dimensión 512, `float` de Python, norma L2 = 1, misma persona más cerca que distinta y separadas por el umbral calibrado), `identify`, `register_identity` (incluye 2 rostros, sin rostros e imagen ilegible) y `predict` (reconocida, `unknown`, sin rostros y varias personas).
+
+Usan los modelos reales (`w600k_r50.onnx` y `det_10g.onnx`, en `models/` o en `~/.insightface/models/buffalo_l`) y las fotos de `docs/fotos_*`; si faltan los modelos, los tests se saltean. No necesitan Postgres: usan un store en memoria.
+
+```bash
+pytest          # desde la raíz del repo; `pytest.ini` ya agrega `src/` al path
+```
 
 ## Notas importantes
 
