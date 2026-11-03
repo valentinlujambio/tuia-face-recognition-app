@@ -216,6 +216,7 @@ El pipeline de la app es el mismo de la Parte 1 (detector, alineación y normali
 - `_load_detector` carga SCRFD desde `models/<DETECTOR_MODEL_NAME>` (o, si está vacío, desde `~/.insightface`). El detector es un archivo aparte del reconocedor, como prevé el enunciado (3.5).
 - `Settings` (`src/lib/config.py`) ignora las variables del `.env` que no son suyas. Antes, con `KAGGLE_API_TOKEN` en `src/.env` (lo usa la notebook 1), el backend no arrancaba.
 - Variable nueva `DET_PAD_RATIO`, en los dos `.env.*.example`.
+- `identify` usa `PgVectorEmbeddingStore.search` con pgvector y coseno: la base busca el registro más parecido con `<=>`. Con el store JSON o con `l2` sigue recorriendo todos. Para eso se corrigió `search`, que fallaba al ejecutarse.
 
 **Consistencia app ↔ notebook:** la misma foto procesada por la app y por la Parte 1 da embeddings con coseno entre 0,991 y 0,998. La diferencia viene de detectar sobre la imagen original o sobre el recorte.
 

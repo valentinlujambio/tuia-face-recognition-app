@@ -212,8 +212,17 @@ class FaceService:
             return self._l2_similarity(a, b)
         return self._cosine(a, b)
 
+    def _candidates(self, query_embedding: list[float]) -> list[EmbeddingRecord]:
+        """
+        Con pgvector y coseno, la base busca el registro más parecido (operador <=>).
+        Con el store JSON o con l2 se recorren todos, porque <=> es distancia coseno.
+        """
+        if hasattr(self.store, "search") and self.similarity_metric.lower() != "l2":
+            return self.store.search(query_embedding, k=1)
+        return self.store.all()
+
     def identify(self, query_embedding: list[float]) -> tuple[str, float]:
-        records = self.store.all()
+        records = self._candidates(query_embedding)
         if not records:
             return "unknown", 0.0
 

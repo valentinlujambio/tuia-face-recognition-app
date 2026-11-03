@@ -135,6 +135,26 @@ class TestIdentify:
         label, score = service.identify([1.0] + [0.0] * (EMBEDDING_DIM - 1))
         assert label == "unknown" and score < SIMILARITY_THRESHOLD
 
+    @pytest.mark.parametrize("metric, expected", [("cosine", "search"), ("l2", "all")])
+    def test_search_is_used_only_with_cosine(self, service, monkeypatch, metric, expected):
+        # <=> es distancia coseno: con l2 hay que recorrer todos los registros
+        calls = []
+        record = EmbeddingRecord(id_imagen="x", embedding=[1.0] + [0.0] * (EMBEDDING_DIM - 1), path="", etiqueta="ana")
+
+        class SearchStore:
+            def all(self):
+                calls.append("all")
+                return [record]
+
+            def search(self, query, k=10):
+                calls.append("search")
+                return [record]
+
+        service.store = SearchStore()
+        monkeypatch.setattr(service, "similarity_metric", metric)
+        assert service.identify(record.embedding)[0] == "ana"
+        assert calls == [expected]
+
 
 # --- register_identity ------------------------------------------------------------------------
 
