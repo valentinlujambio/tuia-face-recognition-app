@@ -194,7 +194,7 @@ Completar en la entrega final:
 ### Modelo A: CNN custom
 
 - **Descarga (.onnx, público, solo lectura):** [custom_cnn.onnx](https://drive.google.com/file/d/1iWWYQ4wmxB1UdXM3lfTFq3anLCqIYvWS/view?usp=sharing). Copiarlo en `models/`.
-- **Notebook en Colab (ejecutada):** [2a-modelo-custom](https://colab.research.google.com/drive/1lJKOFxoGqoZJcQHgJ9kp2FAFF_S9t-u8?usp=sharing)
+- **Notebook en Colab (ejecutada):** [2a-modelo-custom](https://colab.research.google.com/drive/1jsKVLagYVW_ujwkjycdLnifEWf6rrMGf?usp=sharing)
 - **Arquitectura:** ResNet chica de 4 etapas (2 bloques residuales cada una, BatchNorm, PReLU, global average pooling), ~2,8M de parámetros, código en `src/lib/models/custom_cnn.py`.
 - **Entrenamiento:** softmax + SGD (exp 1) y luego fine-tuning con ArcFace (s = 30, m = 0,5) inicializado desde ese checkpoint (exp 4). Detalle de los 4 experimentos en la notebook.
 - **Resultado en val_open (identidades no vistas):** AUC 0,903, EER 0,178.
