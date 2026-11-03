@@ -191,6 +191,15 @@ Completar en la entrega final:
 - Análisis de errores (FP/FN)
 - Métricas: accuracy, precision, recall, AUC/EER
 
+### Modelo A: CNN custom
+
+- **Descarga (.onnx, público, solo lectura):** [custom_cnn.onnx](https://drive.google.com/file/d/1iWWYQ4wmxB1UdXM3lfTFq3anLCqIYvWS/view?usp=sharing). Copiarlo en `models/`.
+- **Notebook en Colab (ejecutada):** [2a-modelo-custom](https://colab.research.google.com/drive/1lJKOFxoGqoZJcQHgJ9kp2FAFF_S9t-u8?usp=sharing)
+- **Arquitectura:** ResNet chica de 4 etapas (2 bloques residuales cada una, BatchNorm, PReLU, global average pooling), ~2,8M de parámetros, código en `src/lib/models/custom_cnn.py`.
+- **Entrenamiento:** softmax + SGD (exp 1) y luego fine-tuning con ArcFace (s = 30, m = 0,5) inicializado desde ese checkpoint (exp 4). Detalle de los 4 experimentos en la notebook.
+- **Resultado en val_open (identidades no vistas):** AUC 0,903, EER 0,178.
+- **Configuración en `.env`:** `MODEL_NAME=custom_cnn.onnx`, `EMBEDDING_DIM=128`, `FACE_SIZE=112`. Preprocesamiento: RGB, `(x - 127.5) / 127.5`, NCHW, y normalización L2 del embedding.
+
 ## Dataset
 
 Documentar:
