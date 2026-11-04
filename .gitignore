@@ -13,3 +13,7 @@ data/*
 .DS_Store
 src/output/*
 !src/output/.gitkeep
+
+results/*
+!results/.gitkeep
+aligned.rar

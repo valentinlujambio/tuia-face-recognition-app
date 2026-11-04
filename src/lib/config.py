@@ -13,7 +13,8 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 class Settings(BaseSettings):
-    model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8")
+    # extra="ignore": el .env también tiene variables que no son del backend (p. ej. KAGGLE_API_TOKEN de la notebook 1)
+    model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
 
     cors_origins: str = Field(
         default="*",
@@ -32,6 +33,7 @@ class Settings(BaseSettings):
     det_input_size: int = os.getenv("DET_INPUT_SIZE", 640)
     min_face_size: int = os.getenv("MIN_FACE_SIZE", 20)
     align_margin: float = os.getenv("ALIGN_MARGIN", 0.5)
+    det_pad_ratio: float = os.getenv("DET_PAD_RATIO", 0.25)
     max_workers: int = os.getenv("MAX_WORKERS", 2)
     face_size: int = os.getenv("FACE_SIZE", 112)
     embedding_dim: int = os.getenv("EMBEDDING_DIM", 512)

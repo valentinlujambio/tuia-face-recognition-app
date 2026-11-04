@@ -14,7 +14,8 @@ services:
       - ./output:/app/output
       - ./data:/app/data
     depends_on:
-      - postgres
+      postgres:
+        condition: service_healthy
     entrypoint: ["uvicorn", "app.main:app", "--reload", "--host", "0.0.0.0", "--port", "8000"]
   postgres:
     image: pgvector/pgvector:pg17
@@ -25,21 +26,12 @@ services:
       POSTGRES_USER: ${POSTGRES_USER:-faces_user}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-faces_pass}
     healthcheck:
-      test: ["CMD", "pg_isready", "-U", "${POSTGRES_USER:-faces_user}", "-d", "${POSTGRES_DB:-faces}"]
+      test: ["CMD", "pg_isready", "-h", "127.0.0.1", "-U", "${POSTGRES_USER:-faces_user}", "-d", "${POSTGRES_DB:-faces}"]
       interval: 10s
       timeout: 5s
       retries: 5
     volumes:
       - pgdata:/var/lib/postgresql/data
-    post_start:
-      - command:
-          - psql
-          - -U
-          - ${POSTGRES_USER:-faces_user}
-          - -d
-          - ${POSTGRES_DB:-faces}
-          - -c
-          - CREATE EXTENSION IF NOT EXISTS vector;
 
   frontend:
     build:

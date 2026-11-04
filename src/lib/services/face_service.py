@@ -10,10 +10,15 @@ import torch
 import onnxruntime
 from lib.schemas import EmbeddingRecord, FaceDetection, PredictResult, AlignedFace
 from lib.storage.base import EmbeddingStoreProtocol
-import os 
+from lib.vision import FaceAligner, InputNormalization, OnnxFaceEmbedder, ScrfdDetector, l2_normalize
+import os
 import logging
 
 logger = logging.getLogger(__name__)
+
+# IoU mínimo entre la caja pedida y la que se vuelve a detectar en el recorte con margen
+# para tomar sus landmarks como los de esa cara.
+MIN_LANDMARK_IOU = 0.3
 
 
 class FaceService:
@@ -30,17 +35,22 @@ class FaceService:
         det_input_size: int = 640,
         min_face_size: int = 20,
         align_margin: float = 0.5,
+        det_pad_ratio: float = 0.25,
     ) -> None:
         self.store = store
         self.similarity_metric = similarity_metric
         self.similarity_threshold = similarity_threshold
         self.face_size = face_size
+        # Mismo preprocesamiento que en el entrenamiento y la evaluación (lib.vision)
+        self.normalization = InputNormalization()
+        self.aligner = FaceAligner(face_size)
         self.model: any = self._load_model(model_path)
         self.output_path = output_path
         self.det_score_threshold = det_score_threshold
         self.det_input_size = det_input_size
         self.min_face_size = min_face_size
         self.align_margin = align_margin
+        self.det_pad_ratio = det_pad_ratio
         self.detector: any = self._load_detector(detector_path)
 
         os.makedirs(self.output_path, exist_ok=True)
@@ -77,20 +87,28 @@ class FaceService:
         if suf == ".pth":
             return torch.load(mp, map_location="cpu", weights_only=False)
         if suf == ".onnx":
-            return onnxruntime.InferenceSession(str(mp))
+            # Reconocedor ONNX (ArcFace w600k_r50 o la CNN custom exportada): sesión de onnxruntime
+            # con la normalización de entrada del entrenamiento y salida normalizada L2.
+            return OnnxFaceEmbedder(mp, normalization=self.normalization)
         raise ValueError(f"Unsupported model format (expected .pth or .onnx): {model_path}")
 
-    def _load_detector(self, detector_path: Path | None) -> any:
+    def _load_detector(self, detector_path: Path | None) -> ScrfdDetector:
         """
-        Load the face detector once (called from __init__).
-        By default loads a .pth / .onnx file from DETECTOR_MODEL_NAME, or returns None
-        when it is not set. Override it if your detector comes from a library
-        (InsightFace, OpenCV YuNet, MTCNN, etc.) and configure it with
-        self.det_score_threshold and self.det_input_size.
+        Detector SCRFD de InsightFace (det_10g.onnx de buffalo_l), el mismo de la Parte 1.
+        Se carga una sola vez. Con DETECTOR_MODEL_NAME se usa ese archivo de MODEL_PATH;
+        sin él, el de ~/.insightface (se descarga buffalo_l si no está).
         """
+        kwargs = dict(
+            score_threshold=self.det_score_threshold,
+            input_size=self.det_input_size,
+            min_face_size=self.min_face_size,
+            pad_ratio=self.det_pad_ratio,
+        )
         if detector_path is None:
-            return None
-        return self._load_model(detector_path)
+            return ScrfdDetector.from_model_pack(**kwargs)
+        if not Path(detector_path).exists():
+            raise ValueError(f"Detector path does not exist: {detector_path}")
+        return ScrfdDetector(detector_path, **kwargs)
 
     def _load_image(self, source_path: str) -> np.ndarray:
         image = cv2.imread(source_path)
@@ -112,9 +130,12 @@ class FaceService:
         """
         Each box is (x1, y1, x2, y2) in pixels (InsightFace convention).
         Return a list of tuples with the coordinates of the faces detected in the image.
-        """
-        raise NotImplementedError("Not implemented")
 
+        El detector ya filtra por DET_SCORE_THRESHOLD y MIN_FACE_SIZE y ordena de mayor a menor área.
+        Sin caras devuelve una lista vacía.
+        """
+        height, width = image.shape[:2]
+        return [self._clip_xyxy(*detection.bbox, height, width) for detection in self.detector.detect(image)]
 
     def align_face(
         self, image: np.ndarray, box: tuple[int, int, int, int]
@@ -122,15 +143,57 @@ class FaceService:
         """
         Crop using box (x1, y1, x2, y2) and run FaceAnalysis on the crop.
         Return an AlignedFace object.
+
+        Los landmarks se vuelven a detectar en un recorte con ALIGN_MARGIN de margen alrededor de la caja
+        (no en el recorte justo, donde SCRFD pierde contexto) y se toma la detección que más se superpone
+        con la caja. Con ellos se alinea la imagen completa a la plantilla de ArcFace, como en la Parte 1.
+        Los keypoints se devuelven relativos a la esquina superior izquierda de la caja.
         """
-        raise NotImplementedError("Not implemented")
+        x1, y1, x2, y2 = (int(v) for v in box)
+        height, width = image.shape[:2]
+        margin = int(round(self.align_margin * max(x2 - x1, y2 - y1)))
+        cx1, cy1 = max(0, x1 - margin), max(0, y1 - margin)
+        cx2, cy2 = min(width, x2 + margin), min(height, y2 + margin)
+        offset = np.array([cx1, cy1], dtype=np.float32)
+
+        target = np.array([x1, y1, x2, y2], dtype=np.float32)
+        best, best_iou = None, 0.0
+        for detection in self.detector.detect(image[cy1:cy2, cx1:cx2]):
+            iou = self._iou(np.asarray(detection.bbox, dtype=np.float32) + np.tile(offset, 2), target)
+            if iou > best_iou:
+                best, best_iou = detection, iou
+
+        if best is None or best_iou < MIN_LANDMARK_IOU:
+            # Sin landmarks no se puede alinear: recorte de la caja redimensionado (el frontend dibuja solo la caja)
+            logger.warning(f"No landmarks found for box {box}; using the resized crop")
+            crop = cv2.resize(image[y1:y2, x1:x2], (self.face_size, self.face_size))
+            return AlignedFace(bbox=[x1, y1, x2, y2], keypoints=None, image=crop)
+
+        keypoints = best.keypoints + offset
+        return AlignedFace(
+            bbox=[x1, y1, x2, y2],
+            keypoints=keypoints - np.array([x1, y1], dtype=np.float32),
+            image=self.aligner.align(image, keypoints),
+        )
 
     def extract_embedding_from_face(self, face: AlignedFace) -> list[float]:
         """
         Extract embedding from face.
         Return a list of floats representing the embedding of the face.
+
+        Mismo preprocesamiento que en el entrenamiento (InputNormalization: BGR -> RGB, (x - 127.5) / 127.5,
+        HWC -> NCHW) y normalización L2, con .onnx (OnnxFaceEmbedder) o con un modelo .pth completo.
         """
-        raise NotImplementedError("Not implemented")
+        if face.embedding is not None:
+            return face.embedding
+        if isinstance(self.model, OnnxFaceEmbedder):
+            embedding = self.model.embed([face.image])[0]
+        else:
+            self.model.eval()
+            with torch.no_grad():
+                output = self.model(torch.from_numpy(self.normalization([face.image])))
+            embedding = l2_normalize(output.cpu().numpy())[0]
+        return embedding.astype(float).tolist()
         
     def _cosine(self, a: np.ndarray, b: np.ndarray) -> float:
         denom = np.linalg.norm(a) * np.linalg.norm(b)
@@ -149,8 +212,17 @@ class FaceService:
             return self._l2_similarity(a, b)
         return self._cosine(a, b)
 
+    def _candidates(self, query_embedding: list[float]) -> list[EmbeddingRecord]:
+        """
+        Con pgvector y coseno, la base busca el registro más parecido (operador <=>).
+        Con el store JSON o con l2 se recorren todos, porque <=> es distancia coseno.
+        """
+        if hasattr(self.store, "search") and self.similarity_metric.lower() != "l2":
+            return self.store.search(query_embedding, k=1)
+        return self.store.all()
+
     def identify(self, query_embedding: list[float]) -> tuple[str, float]:
-        records = self.store.all()
+        records = self._candidates(query_embedding)
         if not records:
             return "unknown", 0.0
 

@@ -1,0 +1,31 @@
+{
+  "dataset": "pins-face-recognition (Kaggle: hereisburak/pins-face-recognition)",
+  "dataset_root": "data/raw/pins/105_classes_pins_dataset",
+  "aligned_root": "data/processed/aligned",
+  "seed": 42,
+  "face_size": 112,
+  "detector": "SCRFD det_10g.onnx (buffalo_l)",
+  "det_score_threshold": 0.5,
+  "det_input_size": 640,
+  "pad_ratio": 0.25,
+  "min_images_per_identity": 20,
+  "quality_rules": [
+    "archivo corrupto",
+    "cero o varias caras (mayor/segunda < 2)",
+    "cara chica (lado < 40 px)",
+    "borrosa (var. Laplaciano < 30)",
+    "exposición extrema en la zona central (brillo fuera de [40, 215] o > 30% de píxeles saturados)",
+    "duplicado"
+  ],
+  "duplicate_threshold": 0.95,
+  "near_duplicate_threshold": 0.85,
+  "label_error_similarity": 0.5,
+  "outlier_similarity": 0.3,
+  "split": {
+    "open_val_identities": 12,
+    "open_test_identities": 13,
+    "closed_val_fraction": 0.15,
+    "closed_test_fraction": 0.15,
+    "seed": 42
+  }
+}
